@@ -13,11 +13,11 @@ from .client import MCPError, fetch_tools
 from .config_scan import load_servers, scan_config
 from .discover import discover
 from .findings import SEVERITIES, Finding, at_least
-from .pinning import build_lock, read_lock, verify
+from .pinning import approve, build_lock, describe_change, read_lock, tool_status, verify
 from .proxy import run_proxy
 from .report import to_html, to_json, to_sarif, to_text
 from .score import badge_svg, grade
-from .tool_scan import scan_servers
+from .tool_scan import scan_servers, scan_tool
 
 PRO_URL = "https://github.com/s78519300-creator/mcp-tripwire#free-vs-pro"
 # Rules that MCP Tripwire Pro's hardening script can fix automatically.
@@ -57,10 +57,13 @@ def _tip(findings: list[Finding], args: argparse.Namespace) -> None:
         print(f"\nTip: {fixable} of these can be fixed automatically with MCP Tripwire Pro: {PRO_URL} (hide with --no-tips)", file=sys.stderr)
 
 
-def _live_tools(config: Path, timeout: float, skip: set[str] = frozenset()) -> tuple[dict[str, list[dict]], list[str]]:
+def _live_tools(config: Path, timeout: float, skip: set[str] = frozenset(),
+                only: set[str] | None = None) -> tuple[dict[str, list[dict]], list[str]]:
     """Launch each stdio server and list its tools. Servers in ``skip`` are never started."""
     servers, errors = {}, []
     for name, server in load_servers(config).items():
+        if only is not None and name not in only:
+            continue
         if not server.get("command"):
             continue  # Remote servers are covered by the static config scan.
         if name in skip:
@@ -147,6 +150,93 @@ def cmd_pin(args: argparse.Namespace) -> int:
     return 0
 
 
+def _confirm(prompt: str, assume_yes: bool) -> bool:
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        print("Not approving: no terminal to confirm in. Re-run with --yes once you have reviewed the change.", file=sys.stderr)
+        return False
+    return input(f"{prompt} [y/N] ").strip().lower() in {"y", "yes"}
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    """Approve reviewed changes one tool at a time, leaving every other change flagged."""
+    lock_path = Path(args.lock)
+    lock = read_lock(lock_path)
+    wanted: dict[str, set[str] | None] = {}
+    for target in args.targets:
+        if "/" not in target:
+            raise ValueError(f"'{target}' should look like server/tool, or server/* for every change in a server")
+        server, tool = target.split("/", 1)
+        if tool == "*":
+            wanted[server] = None
+        elif wanted.get(server, set()) is not None:
+            wanted.setdefault(server, set()).add(tool)
+
+    known = load_servers(args.config)
+    missing = [server for server in wanted if server not in known]
+    if missing:
+        raise ValueError(f"not in {args.config}: {', '.join(missing)}")
+    servers, errors = _live_tools(args.config, args.timeout, only=set(wanted))
+    for error in errors:
+        print(f"warning: could not list tools from {error}", file=sys.stderr)
+
+    approved = 0
+    for server, names in wanted.items():
+        if server not in servers:
+            print(f"{server}: skipped, could not list its tools")
+            continue
+        current = {str(t.get("name")): t for t in servers[server]}
+        pinned = set(lock["servers"].get(server, {}))
+        if names is None:
+            names = {n for n in current | dict.fromkeys(pinned) if tool_status(lock, server, n, current.get(n)) != "approved"}
+            if not names:
+                print(f"{server}: nothing to approve, every tool matches the lock file")
+        for name in sorted(names):
+            tool = current.get(name)
+            status = tool_status(lock, server, name, tool)
+            label = f"{server}/{name}"
+            if status == "approved":
+                print(f"{label}: already approved, nothing to do")
+                continue
+            if status == "unknown":
+                print(f"{label}: no such tool on the server or in the lock file")
+                continue
+            print(f"\n{label}: {status}")
+            if status == "changed":
+                before = lock.get("definitions", {}).get(server, {}).get(name)
+                if before is not None:
+                    changed, diff = describe_change(before, tool)
+                    print(f"  changed: {', '.join(changed)}")
+                    print(f"  {diff}")
+                else:
+                    print("  (this lock file has no stored definition, so the exact diff is unavailable)")
+            if status in {"changed", "new"}:
+                print(f"  description now: {str(tool.get('description') or '')[:300]!r}")
+                serious = [f for f in scan_tool(tool, server) if at_least(f.severity, "high")]
+                if serious and not args.force:
+                    print("  REFUSED: the new definition fails the security scan:")
+                    for f in serious:
+                        print(f"    [{f.severity}] {f.rule} {f.message}")
+                    print("  Use --force only if you have confirmed these findings are false positives.")
+                    continue
+            if status == "removed":
+                print("  the server no longer offers this tool; approving removes it from the lock file")
+            if _confirm(f"  Approve {label}?", args.yes):
+                lock = approve(lock, server, name, tool)
+                approved += 1
+                print(f"  approved {label}")
+            else:
+                print(f"  left {label} unapproved")
+
+    if approved:
+        tmp = lock_path.with_suffix(lock_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(lock_path)
+        print(f"\nUpdated {lock_path}: {approved} change(s) approved. Other changes stay flagged until you review them.")
+    return 0
+
+
 def cmd_proxy(args: argparse.Namespace) -> int:
     policy = json.loads(Path(args.policy).read_text(encoding="utf-8")) if args.policy else None
     lock = read_lock(args.lock) if args.lock else None
@@ -200,6 +290,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lock", default="mcp-tripwire.lock.json")
     p.add_argument("--timeout", type=float, default=15)
     p.set_defaults(func=cmd_pin)
+
+    p = sub.add_parser("approve", help="approve reviewed tool changes one at a time")
+    p.add_argument("config", type=Path)
+    p.add_argument("targets", nargs="+", metavar="server/tool", help="tools to approve, or server/* for every change in a server")
+    p.add_argument("--lock", default="mcp-tripwire.lock.json")
+    p.add_argument("--yes", "-y", action="store_true", help="approve without asking (for scripts, after review)")
+    p.add_argument("--force", action="store_true", help="approve even if the new definition fails the security scan")
+    p.add_argument("--timeout", type=float, default=15)
+    p.set_defaults(func=cmd_approve)
 
     p = sub.add_parser("proxy", help="run a server behind the runtime firewall")
     p.add_argument("--server", default="server")

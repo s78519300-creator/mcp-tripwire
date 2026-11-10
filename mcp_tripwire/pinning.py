@@ -91,6 +91,36 @@ def verify(servers: dict[str, list[dict]], lock: dict) -> list[Finding]:
     return findings
 
 
+def tool_status(lock: dict, server: str, name: str, tool: dict | None) -> str:
+    """One of: 'approved', 'changed', 'new', 'removed', 'unknown'."""
+    pinned = lock["servers"].get(server, {})
+    if tool is None:
+        return "removed" if name in pinned else "unknown"
+    if name not in pinned:
+        return "new"
+    return "approved" if pinned[name] == tool_hash(tool) else "changed"
+
+
+def approve(lock: dict, server: str, name: str, tool: dict | None) -> dict:
+    """Return a new lock with one tool approved (or, if ``tool`` is None, removed).
+
+    Everything else in the lock is left exactly as it was, so unreviewed
+    changes to other tools stay flagged. Version 1 locks are upgraded to 2.
+    """
+    updated = {
+        "version": 2,
+        "servers": {s: dict(t) for s, t in lock["servers"].items()},
+        "definitions": {s: dict(t) for s, t in lock.get("definitions", {}).items()},
+    }
+    if tool is None:
+        updated["servers"].get(server, {}).pop(name, None)
+        updated["definitions"].get(server, {}).pop(name, None)
+    else:
+        updated["servers"].setdefault(server, {})[name] = tool_hash(tool)
+        updated["definitions"].setdefault(server, {})[name] = _pinned_view(tool)
+    return updated
+
+
 def changed_tools(server: str, tools: list[dict], lock: dict) -> set[str]:
     pinned = lock["servers"].get(server, {})
     return {str(t.get("name")) for t in tools if str(t.get("name")) in pinned and pinned[str(t.get("name"))] != tool_hash(t)}
