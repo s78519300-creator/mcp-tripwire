@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "weather": {"command": "python3", "args": ["examples/demo_server.py", "weather"]},
+    "mail": {"command": "python3", "args": ["examples/demo_server.py", "mail"]},
+    "notes": {"command": "python3", "args": ["examples/demo_server.py", "notes"]}
+  }
+}

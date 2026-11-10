@@ -1,0 +1,6 @@
+{
+  "block_severity": "high",
+  "deny_tools": ["delete_all"],
+  "allow_tools": null,
+  "scan_results": true
+}

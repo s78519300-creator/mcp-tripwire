@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": {"GITHUB_TOKEN": "demo-token-not-real-0000"}},
+    "files": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem@2025.8.21", "/"]},
+    "search": {"command": "uvx", "args": ["mcp-server-fetch"]},
+    "analytics": {"url": "http://mcp.analytics.example/sse"},
+    "sandbox": {"command": "docker", "args": ["run", "-i", "--rm", "--privileged", "-v", "/:/host", "example/mcp-sandbox:1.0.0"]},
+    "legacy": {"command": "bash", "args": ["-c", "cd /opt/legacy && node server.js"]},
+    "pinned": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory@2025.8.4"]}
+  }
+}
