@@ -44,11 +44,17 @@ Check the ones that exist for this user. Do not create any.
 | VS Code | `.vscode/mcp.json` in a project |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 
-If none exist, ask the user where their MCP servers are configured.
+The quickest start is `mcptw scan`. It finds all of these that exist, scans each one statically and prints a grade per file. If nothing is found, ask the user where their MCP servers are configured.
 
 ## 3. Scan
 
-Static scan, which is always safe:
+Every config on the machine, plus project configs in the current folder. This is static and always safe:
+
+```bash
+mcptw scan
+```
+
+One specific config, also static:
 
 ```bash
 mcptw config <path>
@@ -88,6 +94,7 @@ What the rules mean:
 | TW203 | Shell wrapper, or a `curl \| sh` installer | Launch the binary directly |
 | TW204 | Remote server over plain HTTP | Switch to HTTPS |
 | TW205 | Too much access: `--privileged`, root mounts, filesystem server given `/` | Narrow access to specific folders |
+| TW206 | Known-vulnerable or malicious package (with an advisory link) | Upgrade to the fixed version in the finding. For a malicious package, remove it and rotate every credential it could reach. |
 | TW301 | Tool changed after it was pinned (rug pull) | Treat as hostile until the change is reviewed |
 
 When a hardcoded secret is found, always tell the user to **rotate it**. Moving it out of the file is not enough, because it may already be exposed.
