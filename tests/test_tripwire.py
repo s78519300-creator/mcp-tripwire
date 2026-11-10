@@ -274,7 +274,7 @@ def test_skill_file_is_valid_and_matches_the_cli():
     assert front and front.group(1) == "mcp-tripwire" and len(front.group(2)) <= 1024
     commands = build_parser()._subparsers._group_actions[0].choices
     used = set(re.findall(r"mcptw ([a-z]+)", text))
-    assert used == {"scan", "config", "audit", "pin", "proxy"} and used <= set(commands), used
+    assert used == {"scan", "config", "audit", "pin", "approve", "proxy"} and used <= set(commands), used
     for rule in set(re.findall(r"TW\d{3}", text)):
         assert rule in RULES, rule
 
@@ -387,3 +387,87 @@ def test_version_1_lock_files_still_work():
     lock = {"version": 1, "servers": lock["servers"]}
     [finding] = verify({"s": [{"name": "a", "description": "y"}]}, lock)
     assert finding.rule == "TW301" and "sha256" in finding.evidence
+
+
+# v0.2.1: approve one reviewed change at a time -------------------------------
+
+def _two_server_setup(tmp_path):
+    config = tmp_path / "c.json"
+    config.write_text(json.dumps({"mcpServers": {
+        "weather": {"command": sys.executable, "args": [str(ROOT / "examples/demo_server.py"), "weather"]},
+        "mail": {"command": sys.executable, "args": [str(ROOT / "examples/demo_server.py"), "mail"]},
+        "notes": {"command": sys.executable, "args": [str(ROOT / "examples/demo_server.py"), "notes"]},
+    }}))
+    lock = tmp_path / "lock.json"
+    assert main(["pin", str(config), "--lock", str(lock)]) == 0
+    data = json.loads(lock.read_text())
+    # Pretend both clean tools were approved with older wording.
+    for server, tool in (("weather", "get_forecast"), ("mail", "send_email")):
+        data["servers"][server][tool] = "sha256:old"
+        data["definitions"][server][tool]["description"] = "Old wording."
+    lock.write_text(json.dumps(data))
+    return config, lock
+
+
+def _flagged(config, lock):
+    from mcp_tripwire.cli import _live_tools
+    from mcp_tripwire.pinning import read_lock
+    servers, _ = _live_tools(config, 15)
+    return {f.target for f in verify(servers, read_lock(lock)) if f.rule == "TW301"}
+
+
+def test_approve_only_the_reviewed_tool(tmp_path, capsys):
+    config, lock = _two_server_setup(tmp_path)
+    assert _flagged(config, lock) == {"weather/get_forecast", "mail/send_email"}
+    assert main(["approve", str(config), "weather/get_forecast", "--lock", str(lock), "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "changed: description" in out and "Old wording." in out and "approved weather/get_forecast" in out
+    assert _flagged(config, lock) == {"mail/send_email"}
+
+
+def test_approve_refuses_a_poisoned_change_unless_forced(tmp_path, capsys):
+    config, lock = _two_server_setup(tmp_path)
+    data = json.loads(lock.read_text())
+    data["servers"]["notes"]["add_note"] = "sha256:old"
+    lock.write_text(json.dumps(data))
+    main(["approve", str(config), "notes/add_note", "--lock", str(lock), "--yes"])
+    assert "REFUSED" in capsys.readouterr().out
+    assert json.loads(lock.read_text())["servers"]["notes"]["add_note"] == "sha256:old"
+    main(["approve", str(config), "notes/add_note", "--lock", str(lock), "--yes", "--force"])
+    assert json.loads(lock.read_text())["servers"]["notes"]["add_note"] != "sha256:old"
+
+
+def test_approve_needs_confirmation_without_a_terminal(tmp_path, capsys):
+    config, lock = _two_server_setup(tmp_path)
+    before = lock.read_text()
+    main(["approve", str(config), "weather/get_forecast", "--lock", str(lock)])
+    assert "no terminal to confirm" in capsys.readouterr().err and lock.read_text() == before
+
+
+def test_approve_server_wildcard_new_and_removed(tmp_path, capsys):
+    config, lock = _two_server_setup(tmp_path)
+    data = json.loads(lock.read_text())
+    data["servers"]["weather"]["old_tool"] = "sha256:x"
+    del data["servers"]["mail"]["send_email"]
+    lock.write_text(json.dumps(data))
+    main(["approve", str(config), "weather/*", "mail/send_email", "--lock", str(lock), "--yes"])
+    out = capsys.readouterr().out
+    assert "weather/old_tool: removed" in out and "mail/send_email: new" in out
+    result = json.loads(lock.read_text())
+    assert "old_tool" not in result["servers"]["weather"] and _flagged(config, lock) == set()
+
+
+def test_approve_bad_targets(tmp_path, capsys):
+    config, lock = _two_server_setup(tmp_path)
+    assert main(["approve", str(config), "nonsense", "--lock", str(lock)]) == 2
+    assert main(["approve", str(config), "ghost/tool", "--lock", str(lock)]) == 2
+    main(["approve", str(config), "weather/does_not_exist", "--lock", str(lock), "--yes"])
+    assert "no such tool" in capsys.readouterr().out
+
+
+def test_approve_upgrades_v1_lock():
+    from mcp_tripwire.pinning import approve
+    lock = {"version": 1, "servers": {"s": {"a": "sha256:1", "b": "sha256:2"}}}
+    new = approve(lock, "s", "a", {"name": "a", "description": "x"})
+    assert new["version"] == 2 and new["servers"]["s"]["b"] == "sha256:2" and "a" in new["definitions"]["s"]
+    assert lock["servers"]["s"]["a"] == "sha256:1"
