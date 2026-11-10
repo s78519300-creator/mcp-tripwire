@@ -6,6 +6,7 @@
     "analytics": {"url": "http://mcp.analytics.example/sse"},
     "sandbox": {"command": "docker", "args": ["run", "-i", "--rm", "--privileged", "-v", "/:/host", "example/mcp-sandbox:1.0.0"]},
     "legacy": {"command": "bash", "args": ["-c", "cd /opt/legacy && node server.js"]},
-    "pinned": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory@2025.8.4"]}
+    "pinned": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory@2025.8.4"]},
+    "bridge": {"command": "npx", "args": ["-y", "mcp-remote@0.1.10", "https://mcp.vendor.example/sse"]}
   }
 }
