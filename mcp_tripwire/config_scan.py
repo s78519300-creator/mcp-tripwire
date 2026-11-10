@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from .advisories import for_package, is_affected, split_spec
 from .findings import Finding
 
 SECRET_KEY = re.compile(r"(api[_-]?key|token|secret|password|passwd|private[_-]?key|auth)", re.I)
@@ -51,6 +52,49 @@ def _package_arg(args: list[str]) -> str | None:
     return None
 
 
+def package_spec(command: str, args: list[str]) -> tuple[str, str] | None:
+    """Return (ecosystem, package spec) for servers launched through a package runner."""
+    base = Path(command).name.lower()
+    if base in {"npx", "bunx", "pnpx"}:
+        spec = _package_arg(args)
+        return ("npm", spec) if spec else None
+    if base in {"pnpm", "yarn"} and args[:1] == ["dlx"]:
+        spec = _package_arg(args[1:])
+        return ("npm", spec) if spec else None
+    if base in {"uvx", "pipx"}:
+        rest = args[1:] if base == "pipx" and args[:1] == ["run"] else args
+        if "--from" in rest:
+            index = rest.index("--from")
+            spec = rest[index + 1] if index + 1 < len(rest) else ""
+        else:
+            spec = _package_arg(rest) or ""
+        return ("pypi", spec) if spec else None
+    return None
+
+
+def advisory_findings(target: str, command: str, args: list[str]) -> list[Finding]:
+    """Check the launched package against the known-vulnerable package list."""
+    found = package_spec(command, args)
+    if found is None:
+        return []
+    ecosystem, spec = found
+    name, version = split_spec(ecosystem, spec)
+    results = []
+    for advisory in for_package(ecosystem, name):
+        if advisory.malicious:
+            results.append(Finding("TW206", "critical", target, f"{name}: {advisory.summary} ({advisory.id})", advisory.url))
+        elif version and re.match(r"^\d", version):
+            if is_affected(advisory, version):
+                results.append(Finding("TW206", advisory.severity, target,
+                                       f"{name}@{version} is affected by {advisory.id}: {advisory.summary}. Upgrade to {advisory.fixed} or later.",
+                                       advisory.url))
+        else:
+            results.append(Finding("TW206", "medium", target,
+                                   f"{name} is unpinned and versions before {advisory.fixed} are affected by {advisory.id}. Pin {advisory.fixed} or later.",
+                                   advisory.url))
+    return results
+
+
 def _is_unpinned(command: str, args: list[str]) -> str | None:
     """Return the package spec if it is not pinned to an exact version."""
     base = Path(command).name.lower()
@@ -94,6 +138,7 @@ def scan_server(name: str, server: dict) -> list[Finding]:
 
     if spec := _is_unpinned(command, args):
         findings.append(Finding("TW202", "medium", target, f"Package '{spec}' is not pinned to an exact version"))
+    findings.extend(advisory_findings(target, command, args))
 
     if Path(command).name.lower() in SHELLS and any(arg in {"-c", "/c", "-Command"} for arg in args):
         script = " ".join(args)

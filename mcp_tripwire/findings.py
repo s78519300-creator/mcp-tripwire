@@ -35,6 +35,7 @@ RULES: dict[str, tuple[str, str, str]] = {
     "TW203": ("shell-wrapper", "MCP05", "Launch the server binary directly. A shell wrapper hides what actually runs."),
     "TW204": ("insecure-transport", "MCP07", "Use HTTPS for remote MCP servers so tokens and tool traffic are not exposed."),
     "TW205": ("excessive-privilege", "MCP02", "Grant the narrowest access the server needs: specific folders, no privileged containers."),
+    "TW206": ("known-vulnerable-package", "MCP04", "Upgrade to the fixed version named in the finding, or remove the package if it is malicious. Rotate any credentials it could reach."),
     "TW301": ("rug-pull", "MCP03", "A tool changed after you approved it. Review the diff before allowing it again."),
     "TW302": ("unreviewed-tool", "MCP09", "A new tool appeared since the last review. Review it, then re-pin."),
     "TW303": ("removed-tool", "MCP03", "A pinned tool disappeared. Confirm the change was expected, then re-pin."),

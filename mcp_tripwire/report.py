@@ -8,6 +8,7 @@ from html import escape
 
 from . import __version__
 from .findings import OWASP, RULES, SEVERITIES, Finding, sort_findings
+from .score import GRADE_COLORS, grade
 
 COLORS = {"critical": "\033[91m", "high": "\033[93m", "medium": "\033[96m", "low": "\033[37m"}
 SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
@@ -24,8 +25,9 @@ def to_text(findings: list[Finding], color: bool = False) -> str:
         if f.evidence:
             lines.append(f"         evidence: {f.evidence}")
     counts = Counter(f.severity for f in findings)
+    letter, score = grade(findings)
     lines.append("")
-    lines.append("Summary: " + ", ".join(f"{counts.get(s, 0)} {s}" for s in SEVERITIES))
+    lines.append("Summary: " + ", ".join(f"{counts.get(s, 0)} {s}" for s in SEVERITIES) + f"  ·  grade {letter} ({score}/100)")
     return "\n".join(lines)
 
 
@@ -77,7 +79,9 @@ main{max-width:1120px;margin:auto;padding:40px 20px 64px}.eyebrow{color:var(--cr
 def to_html(findings: list[Finding], title: str = "MCP Tripwire Report", subtitle: str = "") -> str:
     counts = Counter(f.severity for f in findings)
     by_owasp = Counter(f.owasp for f in findings)
-    cards = "".join(f'<div class="card" style="--c:var(--{s})"><b>{counts.get(s, 0)}</b><span>{s}</span></div>' for s in SEVERITIES)
+    letter, score = grade(findings)
+    cards = f'<div class="card" style="--c:{GRADE_COLORS[letter]}"><b style="color:{GRADE_COLORS[letter]}">{letter}</b><span>grade · {score}/100</span></div>' + "".join(
+        f'<div class="card" style="--c:var(--{s})"><b>{counts.get(s, 0)}</b><span>{s}</span></div>' for s in SEVERITIES)
     tiles = "".join(
         f'<div class="tile{" hit" if by_owasp.get(code) else ""}"><div class="id">{code}</div><div class="t">{escape(name)}</div>'
         f'<div class="n{"" if by_owasp.get(code) else " zero"}">{by_owasp.get(code, 0)}</div></div>'

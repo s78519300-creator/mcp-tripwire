@@ -62,7 +62,7 @@ class StdioClient:
         result = self.request("initialize", {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": {"name": "mcp-tripwire", "version": "0.1.0"},
+            "clientInfo": {"name": "mcp-tripwire", "version": "0.2.0"},
         })
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         return result
