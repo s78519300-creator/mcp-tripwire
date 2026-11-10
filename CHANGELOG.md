@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- `mcptw approve`: approve reviewed tool changes one at a time. It shows the diff, refuses new definitions that fail the security scan (unless `--force`), asks for confirmation, and leaves every other change flagged. Thanks to Sagar V for the question that prompted this.
+
 ## 0.2.0
 
 - `mcptw scan`: finds and grades every MCP config on the machine (Claude Code, Claude Desktop, Cursor, VS Code, Windsurf) plus project configs. Runs nothing.
