@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-tripwire"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find and stop poisoned, rug-pulled and over-privileged MCP servers. Config scanner, tool scanner, hash pinning and a runtime firewall, mapped to the OWASP MCP Top 10."
 readme = "README.md"
 requires-python = ">=3.10"
