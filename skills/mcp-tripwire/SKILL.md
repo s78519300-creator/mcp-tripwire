@@ -105,6 +105,9 @@ If there are no findings, say so, and remind the user that a clean scan means "n
 
 - **Pin approved tools** so later changes are caught:
   `mcptw pin <path> --lock mcp-tripwire.lock.json`, and later `mcptw audit <path> --lock mcp-tripwire.lock.json`
+- **Approve a reviewed change** without re-approving everything else:
+  `mcptw approve <path> <server>/<tool> --lock mcp-tripwire.lock.json`.
+  Show the user the diff it prints and let them answer the prompt. Never pass `--force` to get past a refused change unless the user has reviewed the findings and explicitly asks for it.
 - **Runtime firewall** for a server the user wants to keep but does not fully trust. Wrap its command in the client config:
   `mcptw proxy --server <name> --audit audit.jsonl -- <original command and args>`.
   The proxy hides poisoned tools, blocks calls to them, withholds tool output that contains injected instructions, and logs every decision.
