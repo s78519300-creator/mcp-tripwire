@@ -18,9 +18,28 @@ LOCAL_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 
 
 def load_servers(path: str | Path) -> dict[str, dict]:
+    """Return every server defined in a client config.
+
+    Handles the common shapes: ``mcpServers`` (Claude Desktop, Cursor, Claude
+    Code ``.mcp.json``), ``servers`` (VS Code), ``mcp.servers``, and Claude
+    Code's ``~/.claude.json``, which also keeps servers per project.
+    """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    servers = data.get("mcpServers") or data.get("servers") or data.get("mcp", {}).get("servers")
-    if not isinstance(servers, dict):
+    if not isinstance(data, dict):
+        raise ValueError("config must be a JSON object")
+    found = False
+    servers: dict[str, dict] = {}
+    for candidate in (data.get("mcpServers"), data.get("servers"), (data.get("mcp") or {}).get("servers")):
+        if isinstance(candidate, dict):
+            found = True
+            servers.update(candidate)
+    for project, settings in (data.get("projects") or {}).items():
+        project_servers = (settings or {}).get("mcpServers") if isinstance(settings, dict) else None
+        if isinstance(project_servers, dict):
+            found = True
+            label = Path(project).name or project
+            servers.update({f"{name} ({label})": server for name, server in project_servers.items()})
+    if not found:
         raise ValueError("no 'mcpServers' or 'servers' object found")
     return servers
 
