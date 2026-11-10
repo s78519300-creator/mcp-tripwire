@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-tripwire"
+version = "0.1.0"
+description = "Find and stop poisoned, rug-pulled and over-privileged MCP servers. Config scanner, tool scanner, hash pinning and a runtime firewall, mapped to the OWASP MCP Top 10."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Shalu Kumari"}]
+keywords = ["mcp", "model-context-protocol", "ai-security", "prompt-injection", "llm", "agents", "owasp", "sarif"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+mcptw = "mcp_tripwire.cli:main"
+
+[tool.setuptools]
+packages = ["mcp_tripwire"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

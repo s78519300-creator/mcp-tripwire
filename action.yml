@@ -1,0 +1,41 @@
+name: MCP Tripwire
+description: Scan MCP client configs for secrets, unpinned packages and risky servers, and upload SARIF to code scanning.
+branding:
+  icon: shield
+  color: red
+inputs:
+  config:
+    description: Path to the MCP client config to scan
+    required: true
+  fail-on:
+    description: Fail the job at or above this severity (critical, high, medium, low)
+    default: high
+  upload-sarif:
+    description: Upload results to GitHub code scanning
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install mcp-tripwire
+      shell: bash
+      run: pip install "${{ github.action_path }}"
+    - name: Scan
+      id: scan
+      shell: bash
+      run: |
+        set +e
+        mcptw config "${{ inputs.config }}" --format sarif -o mcp-tripwire.sarif --fail-on "${{ inputs.fail-on }}"
+        echo "exit=$?" >> "$GITHUB_OUTPUT"
+        mcptw config "${{ inputs.config }}" --fail-on "${{ inputs.fail-on }}" || true
+    - name: Upload SARIF
+      if: inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: mcp-tripwire.sarif
+        category: mcp-tripwire
+    - name: Enforce threshold
+      shell: bash
+      run: exit ${{ steps.scan.outputs.exit }}
