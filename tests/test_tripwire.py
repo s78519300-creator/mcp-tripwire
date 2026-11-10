@@ -250,3 +250,30 @@ def test_cli_bad_input_returns_2(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("{}")
     assert main(["config", str(bad)]) == 2
+
+
+# Claude Code config shape and the bundled agent skill ------------------------
+
+def test_claude_code_per_project_servers_are_scanned(tmp_path):
+    config = tmp_path / ".claude.json"
+    config.write_text(json.dumps({
+        "mcpServers": {"global": {"command": "npx", "args": ["-y", "pkg@1.0.0"]}},
+        "projects": {"/home/me/app": {"mcpServers": {"local": {"command": "npx", "args": ["-y", "unpinned-pkg"]}}},
+                     "/home/me/empty": {"allowedTools": []}},
+    }))
+    from mcp_tripwire.config_scan import load_servers, scan_config
+    assert set(load_servers(config)) == {"global", "local (app)"}
+    assert [(f.rule, f.target) for f in scan_config(config)] == [("TW202", "config/local (app)")]
+
+
+def test_skill_file_is_valid_and_matches_the_cli():
+    import re
+    from mcp_tripwire.cli import build_parser
+    text = (ROOT / "skills/mcp-tripwire/SKILL.md").read_text(encoding="utf-8")
+    front = re.match(r"^---\nname: ([a-z0-9-]+)\ndescription: (.+?)\n---\n", text, re.S)
+    assert front and front.group(1) == "mcp-tripwire" and len(front.group(2)) <= 1024
+    commands = build_parser()._subparsers._group_actions[0].choices
+    used = set(re.findall(r"mcptw ([a-z]+)", text))
+    assert used == {"config", "audit", "pin", "proxy"} and used <= set(commands), used
+    for rule in set(re.findall(r"TW\d{3}", text)):
+        assert rule in RULES, rule
