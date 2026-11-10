@@ -274,6 +274,116 @@ def test_skill_file_is_valid_and_matches_the_cli():
     assert front and front.group(1) == "mcp-tripwire" and len(front.group(2)) <= 1024
     commands = build_parser()._subparsers._group_actions[0].choices
     used = set(re.findall(r"mcptw ([a-z]+)", text))
-    assert used == {"config", "audit", "pin", "proxy"} and used <= set(commands), used
+    assert used == {"scan", "config", "audit", "pin", "proxy"} and used <= set(commands), used
     for rule in set(re.findall(r"TW\d{3}", text)):
         assert rule in RULES, rule
+
+
+# v0.2: advisories, machine-wide scan, grade and badge, readable rug-pull diffs ----
+
+@pytest.mark.parametrize(
+    "args, severity, advisory",
+    [
+        (["-y", "mcp-remote@0.1.10", "https://x.example"], "critical", "CVE-2025-6514"),
+        (["-y", "@modelcontextprotocol/inspector@0.14.0"], "critical", "CVE-2025-49596"),
+        (["-y", "@modelcontextprotocol/server-filesystem@2025.3.28", "/tmp/x"], "high", "CVE-2025-53109"),
+        (["-y", "@modelcontextprotocol/server-filesystem@0.6.2", "/tmp/x"], "high", "CVE-2025-53110"),
+        (["-y", "postmark-mcp@1.0.15"], "critical", "MAL-2025-postmark-mcp"),
+        (["-y", "mcp-remote"], "medium", "CVE-2025-6514"),
+    ],
+)
+def test_known_vulnerable_packages(args, severity, advisory):
+    found = [f for f in scan_server("s", {"command": "npx", "args": args}) if f.rule == "TW206"]
+    assert any(f.severity == severity and advisory in f.message for f in found), found
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["-y", "mcp-remote@0.1.16"], ["-y", "@modelcontextprotocol/inspector@0.14.1"],
+     ["-y", "@modelcontextprotocol/server-filesystem@2025.7.1", "/tmp/x"], ["-y", "@modelcontextprotocol/server-filesystem@0.6.4", "/tmp/x"],
+     ["-y", "some-other-server@1.0.0"]],
+)
+def test_fixed_versions_are_clean(args):
+    assert not [f for f in scan_server("s", {"command": "npx", "args": args}) if f.rule == "TW206"]
+
+
+def test_version_and_spec_parsing():
+    from mcp_tripwire.advisories import parse_version, split_spec
+    assert parse_version("2025.7.01") == (2025, 7, 1) and parse_version("1.2") == (1, 2, 0)
+    assert split_spec("npm", "@scope/pkg@1.2.3") == ("@scope/pkg", "1.2.3")
+    assert split_spec("npm", "@scope/pkg") == ("@scope/pkg", None)
+    assert split_spec("pypi", "mcp-server-fetch==2025.4.7") == ("mcp-server-fetch", "2025.4.7")
+    assert split_spec("pypi", "mcp-server-fetch") == ("mcp-server-fetch", None)
+
+
+def test_discover_finds_configs_per_platform(tmp_path):
+    from mcp_tripwire.discover import discover
+    home, project = tmp_path / "home", tmp_path / "proj"
+    for rel in (".claude.json", "Library/Application Support/Claude/claude_desktop_config.json", ".cursor/mcp.json"):
+        (home / rel).parent.mkdir(parents=True, exist_ok=True)
+        (home / rel).write_text("{}")
+    (project / ".vscode").mkdir(parents=True)
+    (project / ".vscode/mcp.json").write_text("{}")
+    mac = {label for label, _ in discover(home, project, "darwin", {})}
+    assert mac == {"Claude Code", "Claude Desktop", "Cursor", "Project (VS Code)"}
+    linux = {label for label, _ in discover(home, project, "linux", {})}
+    assert "Claude Desktop" not in linux and "Claude Code" in linux
+    appdata = tmp_path / "appdata"
+    (appdata / "Claude").mkdir(parents=True)
+    (appdata / "Claude/claude_desktop_config.json").write_text("{}")
+    assert "Claude Desktop" in {label for label, _ in discover(home, None, "win32", {"APPDATA": str(appdata)})}
+
+
+def test_cli_scan_whole_machine(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    (home / ".cursor").mkdir(parents=True)
+    (home / ".cursor/mcp.json").write_text(json.dumps({"mcpServers": {"bridge": {"command": "npx", "args": ["-y", "mcp-remote@0.1.10"]}}}))
+    (home / ".claude.json").write_text("not json")
+    monkeypatch.setenv("HOME", str(home))
+    assert main(["scan", "--project", str(tmp_path / "empty")]) == 1
+    captured = capsys.readouterr()
+    assert "Scanned 2 MCP configs" in captured.out and "Cursor/bridge" in captured.out and "could not read" in captured.out
+    assert "Tip:" in captured.err
+
+
+def test_cli_scan_with_nothing_found(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert main(["scan", "--project", str(tmp_path)]) == 0
+    assert "No MCP client configs found" in capsys.readouterr().out
+
+
+def test_tip_is_suppressible_and_never_in_machine_output(tmp_path, capsys):
+    config = ROOT / "examples/risky_config.json"
+    main(["config", str(config), "--no-tips"])
+    assert "Tip:" not in capsys.readouterr().err
+    main(["config", str(config), "--format", "json"])
+    captured = capsys.readouterr()
+    assert "Tip:" not in captured.err and json.loads(captured.out)
+
+
+def test_grade_and_badge(tmp_path):
+    import xml.etree.ElementTree as ET
+    from mcp_tripwire.findings import Finding
+    from mcp_tripwire.score import badge_svg, grade
+    assert grade([]) == ("A", 100)
+    assert grade([Finding("TW202", "medium", "t", "m")] * 3)[0] == "B"
+    assert grade([Finding("TW206", "critical", "t", "m")])[0] == "F"
+    ET.fromstring(badge_svg("C"))
+    out = tmp_path / "b.svg"
+    assert main(["badge", str(ROOT / "examples/risky_config.json"), "-o", str(out)]) == 0
+    assert "grade F" in out.read_text()
+
+
+def test_rug_pull_shows_what_changed(live, monkeypatch):
+    lock = build_lock({"notes": live["notes"]})
+    monkeypatch.setenv("TRIPWIRE_DEMO_RUGPULL", "1")
+    [finding] = verify({"notes": fetch_tools([*SERVER, "notes"])}, lock)
+    assert "changed: description" in finding.message and "collector.example" in finding.evidence
+
+
+def test_version_1_lock_files_still_work():
+    tools = {"s": [{"name": "a", "description": "x"}]}
+    lock = build_lock(tools)
+    lock = {"version": 1, "servers": lock["servers"]}
+    [finding] = verify({"s": [{"name": "a", "description": "y"}]}, lock)
+    assert finding.rule == "TW301" and "sha256" in finding.evidence
