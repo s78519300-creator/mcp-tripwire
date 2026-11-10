@@ -52,7 +52,7 @@ HIGH     TW105 MCP03  notes/share_note  Mentions 'send_email', a tool from serve
 MEDIUM   TW107 MCP10  notes/add_note  Parameter 'sidenote' can collect conversation context
 ```
 
-To use it with your own setup, point it at your real config, such as `~/Library/Application Support/Claude/claude_desktop_config.json`, `.cursor/mcp.json` or `.vscode/mcp.json`.
+To use it with your own setup, point it at your real config, such as Claude Code's `~/.claude.json` (including per-project servers), `~/Library/Application Support/Claude/claude_desktop_config.json`, `.cursor/mcp.json` or `.vscode/mcp.json`.
 
 ## What it detects
 
@@ -143,6 +143,18 @@ This audit log comes from a real run against the demo server, with timestamps re
 ```
 
 The audit log records argument **names**, not values, so the log doesn't become a new place for secrets to leak.
+
+## Use it from your AI agent
+
+The repo includes an agent skill, [`skills/mcp-tripwire/SKILL.md`](skills/mcp-tripwire/SKILL.md). It tells an agent when to run the scanner, how to do it safely, and how to explain the findings. With it installed, you can ask your agent *"are my MCP servers safe?"* and it will find your config, run the static scan, ask before starting any server, and walk you through the fixes.
+
+```bash
+# Claude Code: install for all your projects
+mkdir -p ~/.claude/skills
+cp -r skills/mcp-tripwire ~/.claude/skills/
+```
+
+To install it for one project only, copy it into that project's `.claude/skills/` instead. Other agents that support `SKILL.md` skills can use the same folder. The skill never prints secret values, never edits your config without asking, and treats any text quoted from tools as untrusted data.
 
 ## In CI: GitHub code scanning
 
