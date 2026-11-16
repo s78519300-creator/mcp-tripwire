@@ -10,6 +10,7 @@
 ![OWASP MCP Top 10](https://img.shields.io/badge/mapped%20to-OWASP%20MCP%20Top%2010-ff4d6d)
 ![SARIF](https://img.shields.io/badge/output-SARIF%202.1.0-4cc9f0)
 ![License](https://img.shields.io/badge/license-MIT-94a3b8)
+[![M8ven Score](https://m8ven.ai/badge/mcp/s78519300-creator-mcp-tripwire-1ugkgi)](https://m8ven.ai/mcp/s78519300-creator-mcp-tripwire-1ugkgi?s=readme)
 
 <img src="docs/report.png" alt="MCP Tripwire report: severity counts, findings grouped by OWASP MCP Top 10 category, and detailed findings with evidence and fixes" width="880">
 
